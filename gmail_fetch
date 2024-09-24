@@ -1,0 +1,319 @@
+#!/usr/bin/env ruby
+# encoding: utf-8
+#
+# Released into the Public Domain by Geir Isene (https://isene.com)
+# Version 0.5 (2024-09-23)
+
+#  Load modules {{{1 
+require 'net/imap'
+require 'gmail_xoauth'
+require 'json'
+require 'fileutils'
+
+# Show help text when option "-h" is passed to mail_fetch {{{1
+def help
+puts <<HELPTEXT
+  gmail_fetch is a system that retrieves and filters mail from Gmail accounts
+  and delivers to local folders according to user-defined rules.  It includes
+  examples and is intended to be run from cron to fetch mail e.g. every minute.
+
+  You need to have Ruby installed to run gmail_fetch.
+
+  In order to make use of gmail_fetch, you need to set up your Oauth2 login
+  with Gmail. To do that, follow this howto (shortened in the list below):
+  https://ei.docs.wso2.com/en/latest/micro-integrator/references/connectors/gmail-connector/configuring-gmail-api/
+  You should use the Python script oauth2.py to generate your Client ID and
+  Secret and to retrieve a Refresh Token. This is used by gmail_fetch:
+  https://github.com/google/gmail-oauth2-tools/blob/master/python/oauth2.py
+  You also need the gmail_xoauth gem: https://github.com/nfo/gmail_xoauth
+  Simply follow this procedure:  
+
+    Log into the Google account
+    Go to https://console.cloud.google.com/
+    Create a project (mailfetch)
+    Configure OAuth Consent screen (under "APIs & Services")
+      Type = "External"
+      App name = "mailfetch"
+      User support e-mail = Developer contact information = mail-in-question
+      Save & Continue
+      Add scope "https://mail.google.com/" (Add to table)
+      Save & Continue
+      Save & Continue (no test users)
+      Back to dashboard
+    Go to "Credentials" (Menu in upper left ≡)
+      "+ CREATE CREDENTIALS"
+      Add an "OAuth 2.0 Client ID" (mailfetch) (web client)
+      Add "https://oauth2.dance/" in "Authorized redirect URIs"
+    Download the Client Secret JSON file
+      Rename the file to "you@gmail.com.json" (replacing the obvious part)
+      Save it into your $safedir (see the gmail.conf file)
+    Go to "Library" (Menu in upper left ≡)
+      Search for "Gmail API" and enable it
+    Run: oauth2.py --generate_oauth2_token --client_id=XX --client_secret=YY
+    Authorize, paste into terminal the authorization code to get refresh token
+    Create a file (you@gmail.com.txt) and add only the refresh token in there
+      Save it into your $safedir (see the gmail.conf file)
+    Create a file named "pwl.txt" in your safedir
+      Write only the password to your local imap server in that file
+  
+  The main file "gmail_fetch" is packeged together with the files "gmail.conf",
+  an example Conky configuration file ("conkyrc") and "README-gmail_fetch.txt"
+  into the package file "gmail_fetch.tar.gz".
+
+  Simply put the file "gmail_fetch" into a folder in your defined PATH.
+  Rename the file "gmail.conf" to ".gmail.conf", edit the top part and chuck
+  it into your home directory.
+
+  Add filter rules to each remote server so that gmail_fetch knows where to
+  deliver the retreived mail. Just follow the examples in the files, and
+  you'll be fine. gmail_fetch writes to a logfile in your $safedir should you
+  ever need to debug anything.
+
+  My "conkyrc" is included in the package mail_fetch.tar.gz as an example
+  of how you can get visual notice of the mail_fetch running, network
+  being unreachable, inability to login to local imap or remote servers
+  and new mail count for the mail folders you decide to keep a tab on.
+
+  Add an entry as a cron job using "crontab -e" that lookes like this:
+
+  * * * * * /home/yourusername/bin/gmail_fetch >/dev/null 2>&1
+
+  SYNOPSIS: 
+
+    gmail_fetch [OPTION]
+
+  OPTIONS:
+  
+    -h
+      Displays the help text
+
+    -n
+      Toggles the "NoMail" directive (creates or removes a file named ".nomail")
+
+    -f
+      Forces execution of mail_fetch even if "NoMail" is set
+
+    -d
+      Deletes the lock file in case the program hangs during suspend or otherwise
+
+  COPYRIGHT:
+      
+    Released into the Public Domain by Geir Isene.
+    See http://isene.com for more contributions by me.
+
+HELPTEXT
+end
+
+if ARGV[0] == "-h"
+    help
+    exit
+end
+
+# Delete lock-file with -d option {{{1
+if ARGV[0] == "-d" or ARGV[0] == "-f"
+  begin
+    FileUtils.rm(".mail.lock")
+	  exit if ARGV[0] == "-d"
+  rescue
+  end
+end
+
+# Exit if lock-file detected {{{1
+if File.exist?(".mail.lock")
+  puts "Busy!"
+  exit
+end
+
+# Toggle the NoMail directive {{{1
+if ARGV[0] == "-n"
+  if File.exist?(".mail_no")
+	  FileUtils.rm(".mail_no")
+	  puts "gmail_fetch enabled"
+  else
+	  FileUtils.touch(".mail_no")
+	  puts "gmail_fetch disabled"
+  end
+end
+
+# Exit if file ".mail_no" exists" {{{1
+#  ".mail_no" makes it possible for Conky to notify that no mail will be fetched
+if File.exist?(".mail_no")
+  puts "NoMail"
+  # Unlock before exit
+  FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
+  exit
+end
+
+# Exit if network is unavailable {{{1
+# Create file ".nonet" to let Conky pick up if the Net is down
+require 'open-uri'
+begin
+  FileUtils.rm(".nonet")
+rescue
+end
+begin
+  URI.open("http://www.google.com/", :open_timeout=>5)
+rescue
+  FileUtils.touch(".nonet")
+  puts "Network unreachable."
+  # Unlock before exit
+  FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
+  exit
+end
+
+# Start logging
+load      '~/.gmail.conf'
+logfile = File.new($safedir + "/.mail.log", "w")
+
+# Create lock-file {{{1 
+# Ensures only one instance of gmail_fetch is running, avoiding duplicate retrieval of mails
+FileUtils.touch(".mail.lock")
+logfile.write Time.now.getutc.to_s + " .mail.lock created\n"
+
+# INITIALIZE {{{1
+#  Mail configuration for localhost and remote servers reside in ~/.gmail.conf
+pwl  = File.read($safedir + "/pwl.txt").chomp # Local imap pw
+puts "Initialized"
+logfile.write Time.now.getutc.to_s + " Initialized\n"
+
+# DEFINE FUNCTIONS {{{1
+#  Check for new mails in folders and write result to file {{{2
+def writefile()
+    open($mailfile, 'w') do |f|
+	    $mailboxes.each do |a|
+	      f.write( a[0] + $imap_to.status("INBOX." + a[1], "UNSEEN")["UNSEEN"].to_s + "\n" )
+	    end
+    end
+    puts "Written: #{$mailfile}"
+    # Copy file to another file to ensure no blinking in Conky
+    # Read the file from Conky to display new email in each folder
+    FileUtils.cp($mailfile, $mailfile + "2")
+    puts "Copied:  #{$mailfile}2"
+end
+logfile.write Time.now.getutc.to_s + " Functions defined\n"
+
+# START PROGRAM {{{1
+# Log into each Gmail "from"-server, fetch, filter and log out from each {{{2 
+$messages    = []
+gmails      = Dir.glob($safedir + "/*.json")
+logfile.write Time.now.getutc.to_s + " Accounts read from safedir\n"
+gmails.each do |gfile|
+  jparse    = JSON.parse(File.read(gfile))
+  mailaddr  = File.basename(gfile, ".*")
+  clientid  = jparse["web"]["client_id"]
+  clsecret  = jparse["web"]["client_secret"]
+  reffl     = gfile.sub('.json', '.txt')
+  rehreshtk = File.read(reffl).chomp
+  begin
+    logfile.write Time.now.getutc.to_s + " Getting token for #{mailaddr}\n"
+    token = `python3 #{$oauth2} --generate_oauth2_token --client_id=#{clientid} --client_secret=#{clsecret} --refresh_token=#{rehreshtk}`
+    logfile.write Time.now.getutc.to_s + " Token gotten for #{mailaddr}\n"
+  rescue
+    puts "Token retrieval failed for #{mailaddr}"
+    logfile.write Time.now.getutc.to_s + " Token failed for #{mailaddr}: #{err}\n"
+    next
+  end
+  token.sub!("Access Token: ", '')
+  token.sub!(/\n.*/m, '')
+  $imap_from = Net::IMAP.new('imap.gmail.com', 993, usessl = true, certs = nil, verify = false)
+  begin
+    # Login
+    puts "Trying:  Login to #{mailaddr}"
+    logfile.write Time.now.getutc.to_s + " Trying:  Login to #{mailaddr}\n"
+    $imap_from.authenticate('XOAUTH2', mailaddr, token)
+    $imap_from.select("INBOX")
+    puts "Success: Login to #{mailaddr}"
+    logfile.write Time.now.getutc.to_s + " Success: Login to #{mailaddr}\n"
+    # Filter mails
+    $imap_from.search(["UNSEEN"]).each do |id|
+      logfile.write Time.now.getutc.to_s + " Getting message id #{id}\n"
+      $messages.push($imap_from.fetch(id,'RFC822')[0].attr['RFC822'])
+    end
+    $imap_from.disconnect
+    puts "Success: Disconnect from #{mailaddr}"
+    logfile.write Time.now.getutc.to_s + " Success: Disconnect from #{mailaddr}\n"
+  rescue
+    puts "Failed: Login to #{mailaddr}"
+    logfile.write Time.now.getutc.to_s + " Failed: Login to #{mailaddr}\n"
+    # Create file to flag a failed login
+    FileUtils.touch(".mail.fail")
+  end
+end
+
+# Log into the target (local) IMAP server {{{2 
+begin
+  $imap_to = Net::IMAP.new("localhost", port="143")
+  $imap_to.login($localuser, pwl)
+  $imap_to.select("INBOX")
+  FileUtils.rm(".mail.fail") if File.exist?(".mail.fail")
+  puts "Success: Login to local IMAP server"
+  logfile.write Time.now.getutc.to_s + " Success: Login to local IMAP server\n"
+rescue
+  open($mailfile1, 'w') do |f|
+    $mailboxes.each do |a|
+      f.write( a[0] + "X\n" )
+    end
+  end
+  FileUtils.cp($mailfile1,$mailfile2)
+  puts "Login to local IMAP server failed"
+  logfile.write Time.now.getutc.to_s + " Login to local IMAP server failed\n"
+  # Create file to flag a failed login
+  FileUtils.touch(".mail.fail")
+  # Unlock before exit
+  FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
+  exit
+end
+
+puts "Filtering #{$messages.size} mails"
+logfile.write Time.now.getutc.to_s + " Filtering #{$messages.size} mails\n"
+$messages.each do |m|
+  hit = false
+  $mailfilter.each do |f|
+    match = []
+    match.push(m.scan(/^From:.*/)[0])    if /f/ =~ f[1]
+    match.push(m.scan(/^To:.*/)[0])      if /t/ =~ f[1]
+    match.push(m.scan(/^Cc:.*/)[0])      if /c/ =~ f[1]
+    match.push(m.scan(/^Subject:.*/)[0]) if /s/ =~ f[1]
+    match.push(m.scan(/.*/m)[0])         if /a/ =~ f[1]
+    match.compact!
+    if match.any? {|e| e[f[0]]}
+      $imap_to.append("INBOX." + f[2], m)
+      logfile.write Time.now.getutc.to_s + " Appended to local IMAP: \n" + m.each_line.take(5).join + "\n"
+      hit = true
+      break
+    end
+  end
+  $imap_to.append("INBOX." + $defaultbox, m) unless hit
+end
+
+puts "Success: Mails delivered to local mailboxes"
+logfile.write Time.now.getutc.to_s + " Success: Mails delivered to local mailboxes\n"
+
+# Write mailbox status to file so Conky can show number of mails in mailboxes {{{2
+writefile()
+
+# Disconnect from local server {{{2 
+begin
+  $imap_to.disconnect
+rescue
+end
+logfile.write Time.now.getutc.to_s + " Disconnected from local mailserver\n"
+
+# Run "notmuch new" for indexing new mails & remove the possibly created "dead.letter" file {{{2
+system('notmuch new') if $messages.size > 0
+FileUtils.rm($deadfile) if File.exist?($deadfile)
+
+# Display number of mails filtered {{{2 
+puts "#{$messages.size} mails filtered"
+logfile.write Time.now.getutc.to_s + " #{$messages.size} mails filtered\n"
+
+# Finally unlock {{{2
+FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
+logfile.write Time.now.getutc.to_s + " .mail.lock removed\n"
+logfile.close
+
+# (References) {{{1
+# `oauth2.py --generate_oauth2_token --client_id=#{clientid} --client_secret=#{clsecret}`
+
+# Modeline {{{1 
+# vim: set fdm=marker fcs=fold\:\ :

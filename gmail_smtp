@@ -1,0 +1,30 @@
+#!/usr/bin/ruby 
+
+require 'net/smtp'
+require 'gmail_xoauth'
+require 'json'
+
+load    '~/.smtp.conf'
+
+mail = STDIN.read
+addr = mail.scan(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)
+from = addr[0]
+to   = addr[1]
+
+sfile = $smtpfile + ".json"
+$smtpfile = sfile if File.exist?("sfile")
+
+jparse    = JSON.parse(File.read($smtpfile))
+mailaddr  = File.basename($smtpfile, ".*")
+clientid  = jparse["web"]["client_id"]
+clsecret  = jparse["web"]["client_secret"]
+reffl     = $smtpfile.sub('.json', '.txt')
+rehreshtk = File.read(reffl).chomp
+token = `oauth2.py --generate_oauth2_token --client_id=#{clientid} --client_secret=#{clsecret} --refresh_token=#{rehreshtk}`
+token.sub!("Access Token: ", '')
+token.sub!(/\n.*/m, '')
+smtp = Net::SMTP.new('smtp.gmail.com', 587)
+smtp.enable_starttls_auto
+smtp.start('gmail.com', mailaddr, token, :xoauth2)
+smtp.send_message(mail, from, to)
+smtp.finish
