@@ -1,30 +1,56 @@
 #!/usr/bin/ruby 
+# encoding: utf-8
+#
+# Released into the Public Domain by Geir Isene (https://isene.com)
+# Version 0.5 (2024-09-23)
 
+# Load modules {{{1 
 require 'net/smtp'
 require 'gmail_xoauth'
 require 'json'
 
+# Load config and start logging {{{1
 load    '~/.smtp.conf'
+logfile = File.new($safedir + "/.smtp.log", "w")
 
+# Read the mail from STDIN and get the from/to addresses {{{1
 mail = STDIN.read
+logfile.write Time.now.getutc.to_s + " Mail to send: \n" + mail.each_line.take(5).join + "\n"
 addr = mail.scan(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)
 from = addr[0]
+logfile.write Time.now.getutc.to_s + " From: #{from}\n"
 to   = addr[1]
+logfile.write Time.now.getutc.to_s + " To: #{to}\n"
 
-sfile = $smtpfile + ".json"
-$smtpfile = sfile if File.exist?("sfile")
+# Establish the correct secret file {{{1
+sfile = $safedir + "/" + from + ".json"
+sfile = $safedir + "/" + $default + ".json" unless File.exist?(sfile)
 
-jparse    = JSON.parse(File.read($smtpfile))
-mailaddr  = File.basename($smtpfile, ".*")
+# Parse the secret files and log in {{{1
+jparse    = JSON.parse(File.read(sfile))
+mailaddr  = File.basename(sfile, ".*")
+logfile.write Time.now.getutc.to_s + " Using #{sfile}\n"
 clientid  = jparse["web"]["client_id"]
 clsecret  = jparse["web"]["client_secret"]
-reffl     = $smtpfile.sub('.json', '.txt')
+reffl     = sfile.sub('.json', '.txt')
 rehreshtk = File.read(reffl).chomp
+logfile.write Time.now.getutc.to_s + " Getting token for #{mailaddr}\n"
 token = `oauth2.py --generate_oauth2_token --client_id=#{clientid} --client_secret=#{clsecret} --refresh_token=#{rehreshtk}`
+logfile.write Time.now.getutc.to_s + " Token gotten for #{mailaddr}\n"
 token.sub!("Access Token: ", '')
 token.sub!(/\n.*/m, '')
+
+# Send the mail {{{1
 smtp = Net::SMTP.new('smtp.gmail.com', 587)
 smtp.enable_starttls_auto
 smtp.start('gmail.com', mailaddr, token, :xoauth2)
+logfile.write Time.now.getutc.to_s + " Sending email\n"
 smtp.send_message(mail, from, to)
+logfile.write Time.now.getutc.to_s + " Email sent\n"
+
+# Close {{{1
 smtp.finish
+logfile.close
+
+# Modeline {{{1 
+# # vim: set fdm=marker fcs=fold\:\ :

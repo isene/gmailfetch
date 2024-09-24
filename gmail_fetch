@@ -161,7 +161,7 @@ rescue
   exit
 end
 
-# Start logging
+# Start logging {{{1
 load      '~/.gmail.conf'
 logfile = File.new($safedir + "/.mail.log", "w")
 
