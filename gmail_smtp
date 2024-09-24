@@ -6,6 +6,7 @@
 
 # Load modules {{{1 
 require 'net/smtp'
+require 'mail'
 require 'gmail_xoauth'
 require 'json'
 
@@ -14,13 +15,14 @@ load    '~/.smtp.conf'
 logfile = File.new($safedir + "/.smtp.log", "w")
 
 # Read the mail from STDIN and get the from/to addresses {{{1
-mail = STDIN.read
-logfile.write Time.now.getutc.to_s + " Mail to send: \n" + mail.each_line.take(5).join + "\n"
-addr = mail.scan(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)
-from = addr[0]
-logfile.write Time.now.getutc.to_s + " From: #{from}\n"
-to   = addr[1]
-logfile.write Time.now.getutc.to_s + " To: #{to}\n"
+mail = Mail.new(STDIN.read)
+logfile.write Time.now.getutc.to_s + " Mail to send: \nSUBJECT: " + mail.subject + "\n"
+from = ARGV[1]
+logfile.write Time.now.getutc.to_s + " FROM: #{from}\n"
+ARGV.shift(3)
+to   = ARGV
+logfile.write Time.now.getutc.to_s + " TO: #{to}\n"
+mail = mail.to_s
 
 # Establish the correct secret file {{{1
 sfile = $safedir + "/" + from + ".json"
