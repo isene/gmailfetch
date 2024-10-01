@@ -48,8 +48,9 @@ rewrite the solution to accommodate for the Oauth2 logins.
 
 Add an entry as a cron job using "crontab -e" that lookes like this:
 
+```
 * * * * * /home/yourusername/bin/gmail_fetch >/dev/null 2>&1
-
+```
 
 ## WHO?
 
