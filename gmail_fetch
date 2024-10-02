@@ -2,15 +2,10 @@
 # encoding: utf-8
 #
 # Released into the Public Domain by Geir Isene (https://isene.com)
-# Version 0.5 (2024-09-23)
+# Version 0.6 (2024-10-02)
 
-#  Load modules {{{1 
-require 'net/imap'
-require 'gmail_xoauth'
-require 'json'
-require 'fileutils'
-
-# Show help text when option "-h" is passed to mail_fetch {{{1
+# HELPTEXT {{{1
+# Show help text when option "-h" is passed to mail_fetch
 def help
 puts <<HELPTEXT
   gmail_fetch is a system that retrieves and filters mail from Gmail accounts
@@ -109,7 +104,14 @@ if ARGV[0] == "-h"
     exit
 end
 
-# Delete lock-file with -d option {{{1
+# INITIALIZE {{{1
+#  Load modules {{{2
+require 'net/imap'
+require 'gmail_xoauth'
+require 'json'
+require 'fileutils'
+
+# Delete lock-file with -d option {{{2
 if ARGV[0] == "-d" or ARGV[0] == "-f"
   begin
     FileUtils.rm(".mail.lock")
@@ -118,13 +120,13 @@ if ARGV[0] == "-d" or ARGV[0] == "-f"
   end
 end
 
-# Exit if lock-file detected {{{1
+# Exit if lock-file detected {{{2
 if File.exist?(".mail.lock")
   puts "Busy!"
   exit
 end
 
-# Toggle the NoMail directive {{{1
+# Toggle the NoMail directive {{{2
 if ARGV[0] == "-n"
   if File.exist?(".mail_no")
 	  FileUtils.rm(".mail_no")
@@ -135,7 +137,7 @@ if ARGV[0] == "-n"
   end
 end
 
-# Exit if file ".mail_no" exists" {{{1
+# Exit if file ".mail_no" exists" {{{2
 #  ".mail_no" makes it possible for Conky to notify that no mail will be fetched
 if File.exist?(".mail_no")
   puts "NoMail"
@@ -144,7 +146,7 @@ if File.exist?(".mail_no")
   exit
 end
 
-# Exit if network is unavailable {{{1
+# Exit if network is unavailable {{{2
 # Create file ".nonet" to let Conky pick up if the Net is down
 require 'open-uri'
 begin
@@ -161,11 +163,11 @@ rescue
   exit
 end
 
-# Start logging {{{1
+# Start logging {{{2
 load      '~/.gmail.conf'
 logfile = File.new($safedir + "/.mail.log", "w")
 
-# Create lock-file {{{1 
+# Create lock-file {{{2
 # Ensures only one instance of gmail_fetch is running, avoiding duplicate retrieval of mails
 FileUtils.touch(".mail.lock")
 logfile.write Time.now.getutc.to_s + " .mail.lock created\n"
@@ -177,7 +179,7 @@ puts "Initialized"
 logfile.write Time.now.getutc.to_s + " Initialized\n"
 
 # DEFINE FUNCTIONS {{{1
-#  Check for new mails in folders and write result to file {{{2
+#  Check for new mails in folders and write result to file
 def writefile()
     open($mailfile, 'w') do |f|
 	    $mailboxes.each do |a|
@@ -192,8 +194,8 @@ def writefile()
 end
 logfile.write Time.now.getutc.to_s + " Functions defined\n"
 
-# START PROGRAM {{{1
-# Log into each Gmail "from"-server, fetch, filter and log out from each {{{2 
+# MAIN PROGRAM {{{1
+# Log into each Gmail "from"-server, fetch, filter and log out from each {{{2
 $messages    = []
 gmails      = Dir.glob($safedir + "/*.json")
 logfile.write Time.now.getutc.to_s + " Accounts read from safedir\n"
@@ -240,7 +242,7 @@ gmails.each do |gfile|
   end
 end
 
-# Log into the target (local) IMAP server {{{2 
+# Log into the target (local) IMAP server {{{2
 begin
   $imap_to = Net::IMAP.new("localhost", port="143")
   $imap_to.login($localuser, pwl)
@@ -264,6 +266,7 @@ rescue
   exit
 end
 
+# Filter the mails {{{2
 puts "Filtering #{$messages.size} mails"
 logfile.write Time.now.getutc.to_s + " Filtering #{$messages.size} mails\n"
 $messages.each do |m|
@@ -289,10 +292,11 @@ end
 puts "Success: Mails delivered to local mailboxes"
 logfile.write Time.now.getutc.to_s + " Success: Mails delivered to local mailboxes\n"
 
+# FINISH UP {{{1
 # Write mailbox status to file so Conky can show number of mails in mailboxes {{{2
 writefile()
 
-# Disconnect from local server {{{2 
+# Disconnect from local server {{{2
 begin
   $imap_to.disconnect
 rescue
@@ -303,7 +307,7 @@ logfile.write Time.now.getutc.to_s + " Disconnected from local mailserver\n"
 system('notmuch new') if $messages.size > 0
 FileUtils.rm($deadfile) if File.exist?($deadfile)
 
-# Display number of mails filtered {{{2 
+# Display number of mails filtered {{{2
 puts "#{$messages.size} mails filtered"
 logfile.write Time.now.getutc.to_s + " #{$messages.size} mails filtered\n"
 
@@ -312,8 +316,9 @@ FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
 logfile.write Time.now.getutc.to_s + " .mail.lock removed\n"
 logfile.close
 
-# (References) {{{1
+# (References) {{{2
 # `oauth2.py --generate_oauth2_token --client_id=#{clientid} --client_secret=#{clsecret}`
 
-# Modeline {{{1 
-# vim: set fdm=marker fcs=fold\:\ :
+
+# VIM modeline {{{1
+# vim: set sw=2 sts=2 et fdm=marker fdn=2 fcs=fold\:\ :
