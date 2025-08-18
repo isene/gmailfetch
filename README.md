@@ -1,4 +1,9 @@
 # gmail_fetch
+
+[![Ruby](https://img.shields.io/badge/Ruby-CC342D?style=flat&logo=ruby&logoColor=white)](https://www.ruby-lang.org/)
+[![GitHub stars](https://img.shields.io/github/stars/isene/gmailfetch.svg)](https://github.com/isene/gmailfetch/stargazers)
+[![Stay Amazing](https://img.shields.io/badge/Stay-Amazing-blue.svg)](https://isene.org)
+
 Collect mail from Gmail accounts, filter and store locally.
 
 
