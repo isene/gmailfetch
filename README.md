@@ -4,9 +4,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/isene/gmailfetch.svg)](https://github.com/isene/gmailfetch/stargazers)
 [![Stay Amazing](https://img.shields.io/badge/Stay-Amazing-blue.svg)](https://isene.org)
 
-<img src="gmailfetch_logo.svg" width="150" height="150">
-
-Collect mail from Gmail accounts, filter and store locally.
+<img src="gmailfetch_logo.svg" align="left" width="150" height="150"> Collect mail from Gmail accounts, filter and store locally.
 
 
 ## WHY?
