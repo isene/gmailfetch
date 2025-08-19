@@ -10,6 +10,26 @@ require 'mail'
 require 'gmail_xoauth'
 require 'json'
 
+# Monkey patching Net::SMTP to ensure xoauth2 is included 
+require 'base64'
+module Net
+  class SMTP
+    # Add xoauth2 to the list of authentication types
+    AUTHENTICATION_TYPES = ["plain", "login", "cram_md5", "xoauth2"]
+
+    private
+
+    def auth_xoauth2(user, secret)
+      auth_string = "user=#{user}\1auth=Bearer #{secret}\1\1"
+      res = critical {
+        send("AUTH XOAUTH2 #{Base64.strict_encode64(auth_string)}", true)
+        recv_response()
+      }
+      check_auth_response res
+    end
+  end
+end
+
 # Load config and start logging {{{1
 load    '~/.smtp.conf'
 logfile = File.new($safedir + "/.smtp.log", "w")
