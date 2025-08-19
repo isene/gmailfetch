@@ -5,6 +5,7 @@
 [![Stay Amazing](https://img.shields.io/badge/Stay-Amazing-blue.svg)](https://isene.org)
 
 <img src="img/gmailfetch_logo.svg" align="left" width="150" height="150"> Collect mail from Gmail accounts, filter and store locally.
+<br clear="left"/>
 
 
 ## WHY?
