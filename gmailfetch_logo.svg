@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect x="0" y="0" width="200" height="200" fill="#fff"/>
+  
+  <!-- Gmail-style envelope -->
+  <g transform="translate(100, 85)">
+    <!-- Envelope base -->
+    <rect x="-55" y="-35" width="110" height="70" fill="#fff" stroke="#ea4335" stroke-width="3" rx="5"/>
+    
+    <!-- M shape inside (Gmail style) -->
+    <path d="M -50,-30 L 0,0 L 50,-30" stroke="#ea4335" stroke-width="3" fill="none"/>
+    
+    <!-- OAuth2 lock symbol with pulse -->
+    <g transform="translate(35, 25)">
+      <circle cx="0" cy="0" r="12" fill="#fbbc04" opacity="0.3">
+        <animate attributeName="r" values="12;16;12" dur="2s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.3;0.1;0.3" dur="2s" repeatCount="indefinite"/>
+      </circle>
+      <rect x="-6" y="-2" width="12" height="10" fill="#fbbc04" rx="2"/>
+      <path d="M -4,-2 L -4,-5 Q 0,-9 4,-5 L 4,-2" stroke="#fbbc04" stroke-width="2" fill="none"/>
+      <circle cx="0" cy="3" r="1.5" fill="#fff"/>
+    </g>
+    
+    <!-- Fetching animation -->
+    <g>
+      <circle cx="0" cy="0" r="2" fill="#4285f4">
+        <animate attributeName="cy" values="0;45;0" dur="3s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="1;0.3;1" dur="3s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+  </g>
+  
+  <!-- Ruby gem -->
+  <g transform="translate(30, 30) scale(0.25)">
+    <path d="M -20 -10 L 20 -10 L 30 0 L 20 10 L -20 10 L -30 0 Z" fill="#CC342D" opacity="0.6"/>
+  </g>
+  
+  <!-- Text -->
+  <text x="100" y="160" font-family="Arial, sans-serif" font-size="20" fill="#333" text-anchor="middle" font-weight="bold">gmailfetch</text>
+  <text x="100" y="175" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="middle">OAuth2 Mail Collector</text>
+</svg>
