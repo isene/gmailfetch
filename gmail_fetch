@@ -110,20 +110,26 @@ require 'net/imap'
 require 'gmail_xoauth'
 require 'json'
 require 'fileutils'
+require 'socket'
+require 'openssl'
 
 # Delete lock-file with -d option {{{2
 if ARGV[0] == "-d" or ARGV[0] == "-f"
   begin
     FileUtils.rm(".mail.lock")
 	  exit if ARGV[0] == "-d"
-  rescue
+  rescue Errno::ENOENT
   end
 end
 
 # Exit if lock-file detected {{{2
 if File.exist?(".mail.lock")
-  puts "Busy!"
-  exit
+  if (Time.now - File.mtime(".mail.lock")) > 600
+    FileUtils.rm(".mail.lock")
+  else
+    puts "Busy!"
+    exit
+  end
 end
 
 # Toggle the NoMail directive {{{2
@@ -151,11 +157,11 @@ end
 require 'open-uri'
 begin
   FileUtils.rm(".nonet")
-rescue
+rescue Errno::ENOENT
 end
 begin
   URI.open("http://www.google.com/", :open_timeout=>5)
-rescue
+rescue SocketError, Timeout::Error, StandardError
   FileUtils.touch(".nonet")
   puts "Network unreachable."
   # Unlock before exit
@@ -172,18 +178,40 @@ logfile = File.new($safedir + "/.mail.log", "w")
 FileUtils.touch(".mail.lock")
 logfile.write Time.now.getutc.to_s + " .mail.lock created\n"
 
+begin # Main processing block with ensure cleanup
+
 # INITIALIZE {{{1
 #  Mail configuration for localhost and remote servers reside in ~/.gmail.conf
-pwl  = File.read($safedir + "/pwl.txt").chomp # Local imap pw
 puts "Initialized"
 logfile.write Time.now.getutc.to_s + " Initialized\n"
 
 # DEFINE FUNCTIONS {{{1
 #  Check for new mails in folders and write result to file
+def maildir_path(folder)
+  File.expand_path("~/Maildir/.#{folder}")
+end
+
+def ensure_maildir(folder)
+  base = maildir_path(folder)
+  %w[new cur tmp].each { |sub| FileUtils.mkdir_p(File.join(base, sub)) }
+end
+
+def deliver_to_maildir(folder, message)
+  ensure_maildir(folder)
+  hostname = Socket.gethostname
+  filename = "#{Time.now.to_f}.#{$$}.#{hostname}:2,"
+  tmppath = File.join(maildir_path(folder), "tmp", filename)
+  newpath = File.join(maildir_path(folder), "new", filename)
+  File.write(tmppath, message)
+  File.rename(tmppath, newpath)
+end
+
 def writefile()
     open($mailfile, 'w') do |f|
 	    $mailboxes.each do |a|
-	      f.write( a[0] + $imap_to.status("INBOX." + a[1], "UNSEEN")["UNSEEN"].to_s + "\n" )
+	      newdir = File.join(maildir_path(a[1]), "new")
+	      count = Dir.exist?(newdir) ? Dir.children(newdir).reject { |n| n.start_with?('.') }.size : 0
+	      f.write( a[0] + count.to_s + "\n" )
 	    end
     end
     puts "Written: #{$mailfile}"
@@ -210,14 +238,14 @@ gmails.each do |gfile|
     logfile.write Time.now.getutc.to_s + " Getting token for #{mailaddr}\n"
     token = `python3 #{$oauth2} --generate_oauth2_token --client_id=#{clientid} --client_secret=#{clsecret} --refresh_token=#{rehreshtk}`
     logfile.write Time.now.getutc.to_s + " Token gotten for #{mailaddr}\n"
-  rescue
+  rescue StandardError => e
     puts "Token retrieval failed for #{mailaddr}"
-    logfile.write Time.now.getutc.to_s + " Token failed for #{mailaddr}: #{err}\n"
+    logfile.write Time.now.getutc.to_s + " Token failed for #{mailaddr}: #{e.message}\n"
     next
   end
   token.sub!("Access Token: ", '')
   token.sub!(/\n.*/m, '')
-  $imap_from = Net::IMAP.new('imap.gmail.com', 993, usessl = true, certs = nil, verify = false)
+  $imap_from = Net::IMAP.new('imap.gmail.com', port: 993, ssl: { verify_mode: OpenSSL::SSL::VERIFY_PEER })
   begin
     # Login
     puts "Trying:  Login to #{mailaddr}"
@@ -234,41 +262,25 @@ gmails.each do |gfile|
     $imap_from.disconnect
     puts "Success: Disconnect from #{mailaddr}"
     logfile.write Time.now.getutc.to_s + " Success: Disconnect from #{mailaddr}\n"
-  rescue
+  rescue StandardError => e
     puts "Failed: Login to #{mailaddr}"
-    logfile.write Time.now.getutc.to_s + " Failed: Login to #{mailaddr}\n"
+    logfile.write Time.now.getutc.to_s + " Failed: Login to #{mailaddr}: #{e.message}\n"
     # Create file to flag a failed login
     FileUtils.touch(".mail.fail")
   end
 end
 
-# Log into the target (local) IMAP server {{{2
-begin
-  $imap_to = Net::IMAP.new("localhost", port="143")
-  $imap_to.login($localuser, pwl)
-  $imap_to.select("INBOX")
-  FileUtils.rm(".mail.fail") if File.exist?(".mail.fail")
-  puts "Success: Login to local IMAP server"
-  logfile.write Time.now.getutc.to_s + " Success: Login to local IMAP server\n"
-rescue
-  open($mailfile1, 'w') do |f|
-    $mailboxes.each do |a|
-      f.write( a[0] + "X\n" )
-    end
-  end
-  FileUtils.cp($mailfile1,$mailfile2)
-  puts "Login to local IMAP server failed"
-  logfile.write Time.now.getutc.to_s + " Login to local IMAP server failed\n"
-  # Create file to flag a failed login
-  FileUtils.touch(".mail.fail")
-  # Unlock before exit
-  FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
-  exit
-end
+# Ensure Maildir folders exist {{{2
+FileUtils.rm(".mail.fail") if File.exist?(".mail.fail")
+$mailboxes.each { |a| ensure_maildir(a[1]) }
+$mailfilter.each { |f| ensure_maildir(f[2]) }
+ensure_maildir($defaultbox)
+logfile.write Time.now.getutc.to_s + " Maildir folders verified\n"
 
 # Filter the mails {{{2
 puts "Filtering #{$messages.size} mails"
 logfile.write Time.now.getutc.to_s + " Filtering #{$messages.size} mails\n"
+$folders_used = []
 $messages.each do |m|
   hit = false
   $mailfilter.each do |f|
@@ -279,42 +291,46 @@ $messages.each do |m|
     match.push(m.scan(/^Subject:.*/)[0]) if /s/ =~ f[1]
     match.push(m.scan(/.*/m)[0])         if /a/ =~ f[1]
     match.compact!
-    if match.any? {|e| e[f[0]]}
-      $imap_to.append("INBOX." + f[2], m)
-      logfile.write Time.now.getutc.to_s + " Appended to local IMAP: \n" + m.each_line.take(5).join + "\n"
+    pattern = f[0].is_a?(Regexp) ? f[0] : Regexp.new(Regexp.escape(f[0]))
+    if match.any? {|e| pattern.match?(e)}
+      deliver_to_maildir(f[2], m)
+      $folders_used << f[2]
+      logfile.write Time.now.getutc.to_s + " Delivered to Maildir/.#{f[2]}: \n" + m.each_line.take(5).join + "\n"
       hit = true
       break
     end
   end
-  $imap_to.append("INBOX." + $defaultbox, m) unless hit
+  unless hit
+    deliver_to_maildir($defaultbox, m)
+    $folders_used << $defaultbox
+  end
 end
 
-puts "Success: Mails delivered to local mailboxes"
-logfile.write Time.now.getutc.to_s + " Success: Mails delivered to local mailboxes\n"
+puts "Success: Mails delivered to Maildir"
+logfile.write Time.now.getutc.to_s + " Success: Mails delivered to Maildir\n"
 
 # FINISH UP {{{1
 # Write mailbox status to file so Conky can show number of mails in mailboxes {{{2
 writefile()
 
-# Disconnect from local server {{{2
-begin
-  $imap_to.disconnect
-rescue
-end
-logfile.write Time.now.getutc.to_s + " Disconnected from local mailserver\n"
+logfile.write Time.now.getutc.to_s + " Maildir delivery complete\n"
 
 # Run "notmuch new" for indexing new mails & remove the possibly created "dead.letter" file {{{2
 system('notmuch new') if $messages.size > 0
 FileUtils.rm($deadfile) if File.exist?($deadfile)
 
+# Dualog Insight indexing is now handled by the app's built-in IMAP sync
+
 # Display number of mails filtered {{{2
 puts "#{$messages.size} mails filtered"
 logfile.write Time.now.getutc.to_s + " #{$messages.size} mails filtered\n"
 
-# Finally unlock {{{2
-FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
-logfile.write Time.now.getutc.to_s + " .mail.lock removed\n"
-logfile.close
+ensure # Always clean up lock file and IMAP connections {{{2
+  $imap_from.disconnect if defined?($imap_from) && $imap_from && !$imap_from.disconnected?
+  FileUtils.rm(".mail.lock") if File.exist?(".mail.lock")
+  logfile.write Time.now.getutc.to_s + " .mail.lock removed\n"
+  logfile.close
+end
 
 # (References) {{{2
 # `oauth2.py --generate_oauth2_token --client_id=#{clientid} --client_secret=#{clsecret}`

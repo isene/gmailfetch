@@ -17,15 +17,14 @@ module Net
     # Add xoauth2 to the list of authentication types
     AUTHENTICATION_TYPES = ["plain", "login", "cram_md5", "xoauth2"]
 
-    private
-
     def auth_xoauth2(user, secret)
+      check_auth_args user, secret
       auth_string = "user=#{user}\1auth=Bearer #{secret}\1\1"
       res = critical {
-        send("AUTH XOAUTH2 #{Base64.strict_encode64(auth_string)}", true)
-        recv_response()
+        get_response("AUTH XOAUTH2 #{Base64.strict_encode64(auth_string)}")
       }
       check_auth_response res
+      res
     end
   end
 end
