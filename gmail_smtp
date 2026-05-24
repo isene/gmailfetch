@@ -35,7 +35,7 @@ logfile = File.new($safedir + "/.smtp.log", "w")
 
 # Read the mail from STDIN and get the from/to addresses {{{1
 mail = Mail.new(STDIN.read)
-logfile.write Time.now.getutc.to_s + " Mail to send: \nSUBJECT: " + mail.subject + "\n"
+logfile.write Time.now.getutc.to_s + " Mail to send: \nSUBJECT: " + (mail.subject || "(no subject)") + "\n"
 from = ARGV[1]
 logfile.write Time.now.getutc.to_s + " FROM: #{from}\n"
 ARGV.shift(3)

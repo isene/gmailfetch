@@ -319,7 +319,7 @@ logfile.write Time.now.getutc.to_s + " Maildir delivery complete\n"
 system('notmuch new') if $messages.size > 0
 FileUtils.rm($deadfile) if File.exist?($deadfile)
 
-# Dualog Insight indexing is now handled by the app's built-in IMAP sync
+# External index updates (if any) are handled by the consuming app's IMAP sync
 
 # Display number of mails filtered {{{2
 puts "#{$messages.size} mails filtered"
